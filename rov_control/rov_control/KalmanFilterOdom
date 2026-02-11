@@ -1,0 +1,104 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu, MagneticField
+from nav_msgs.msg import Odometry
+import numpy as np
+from tf_transformations import quaternion_from_euler
+
+class KalmanFilterOdom(Node):
+    def __init__(self):
+        super().__init__('kalman_filter_node')
+        
+        # Subscribers
+        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.imu_callback, 10)
+        self.mag_sub = self.create_subscription(MagneticField, '/mag/data', self.mag_callback, 10)
+        self.odom_pub = self.create_publisher(Odometry, '/odom_filtered', 10)
+
+        # Estados do Filtro [Roll, Pitch, Yaw]
+        self.x = np.zeros((3, 1)) 
+        self.P = np.eye(3) * 0.1  # Covariância do erro inicial
+        self.Q = np.eye(3) * 0.01 # Ruído do processo (confiança no modelo)
+        self.R = np.eye(3) * 0.1  # Ruído da medição (confiança nos sensores)
+        
+        self.last_time = self.get_clock().now()
+        self.get_logger().info("Filtro de Kalman para ROV iniciado.")
+
+    def imu_callback(self, msg):
+        current_time = self.get_clock().now()
+        dt = (current_time - self.last_time).nanoseconds / 1e9
+        self.last_time = current_time
+
+        # --- 1. ETAPA DE PREDIÇÃO (Usando o Giroscópio) ---
+        # x = x + x_dot * dt
+        wx = msg.angular_velocity.x
+        wy = msg.angular_velocity.y
+        wz = msg.angular_velocity.z
+        
+        self.x[0, 0] += wx * dt
+        self.x[1, 0] += wy * dt
+        self.x[2, 0] += wz * dt
+
+        # P = P + Q
+        self.P += self.Q
+
+        # --- 2. ETAPA DE ATUALIZAÇÃO (Usando Acelerômetro para Roll/Pitch) ---
+        # Cálculo simplificado de Roll e Pitch via acelerômetro
+        acc_roll = np.arctan2(msg.linear_acceleration.y, msg.linear_acceleration.z)
+        acc_pitch = np.arctan2(-msg.linear_acceleration.x, 
+                               np.sqrt(msg.linear_acceleration.y**2 + msg.linear_acceleration.z**2))
+        
+        # Por enquanto, mantemos o Yaw da predição ou do Mag (ver mag_callback)
+        z = np.array([[acc_roll], [acc_pitch], [self.x[2, 0]]])
+
+        # Ganho de Kalman: K = P / (P + R)
+        K = self.P @ np.linalg.inv(self.P + self.R)
+        
+        # Atualiza estado: x = x + K * (z - x)
+        self.x += K @ (z - self.x)
+        
+        # Atualiza covariância: P = (I - K) * P
+        self.P = (np.eye(3) - K) @ self.P
+
+        self.publish_odometry(msg.angular_velocity)
+
+    def mag_callback(self, msg):
+        # --- 3. ATUALIZAÇÃO DO YAW VIA MAGNETÔMETRO ---
+        # Cálculo simplificado do Heading (Yaw) - assume ROV nivelado
+        mag_yaw = np.arctan2(msg.magnetic_field.y, msg.magnetic_field.x)
+        
+        # Resíduo apenas para o Yaw
+        z_yaw = mag_yaw
+        r_yaw = 0.5 # Magnetômetro costuma ser mais ruidoso no ROV
+        
+        innovation = z_yaw - self.x[2, 0]
+        # Normaliza ângulo (-pi a pi)
+        innovation = (innovation + np.pi) % (2 * np.pi) - np.pi
+        
+        k_yaw = self.P[2, 2] / (self.P[2, 2] + r_yaw)
+        self.x[2, 0] += k_yaw * innovation
+        self.P[2, 2] *= (1 - k_yaw)
+
+    def publish_odometry(self, angular_vel):
+        odom = Odometry()
+        odom.header.stamp = self.get_clock().now().to_msg()
+        odom.header.frame_id = 'odom'
+        
+        # Converte Euler de volta para Quat para o ROS
+        q = quaternion_from_euler(self.x[0, 0], self.x[1, 0], self.x[2, 0])
+        odom.pose.pose.orientation.x = q[0]
+        odom.pose.pose.orientation.y = q[1]
+        odom.pose.pose.orientation.z = q[2]
+        odom.pose.pose.orientation.w = q[3]
+        
+        odom.twist.twist.angular = angular_vel
+        self.odom_pub.publish(odom)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = KalmanFilterOdom()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
