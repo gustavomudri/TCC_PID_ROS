@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'rov_control'
+package_name = 'tcc'
 
 setup(
     name=package_name,
