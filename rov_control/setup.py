@@ -24,9 +24,9 @@ setup(
     },
 entry_points={
         'console_scripts': [
-            'IK = rov_control.IK_node:main',
-            'CAN = rov_control.CAN_node:main',
-            'Dummy = rov_control.dummy_node:main',
+            'IK = tcc.IK_node:main',
+            'CAN = tcc.CAN_node:main',
+            'Dummy = tcc.dummy_node:main',
         ],
     },
 )
