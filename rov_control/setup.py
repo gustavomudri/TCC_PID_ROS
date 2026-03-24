@@ -14,7 +14,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='mudri',
-    maintainer_email='mudri@todo.todo',
+    maintainer_email='gustavomudri@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -24,9 +24,9 @@ setup(
     },
 entry_points={
         'console_scripts': [
-            'trajectory_node = rov_control.trajectory_node:main',
-            'controller_node = rov_control.controller_node:main',
-            'dummy_rov = rov_control.dummy_rov_node:main',
+            'IK = rov_control.IK_node:main',
+            'CAN = rov_control.CAN_node:main',
+            'Dummy = rov_control.dummy_node:main',
         ],
     },
 )
